@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LIFF 疎通テスト</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+</head>
+<body style="padding: 20px; font-family: sans-serif;">
+  <h2>LIFF 疎通テスト</h2>
+  <div id="status" style="padding: 10px; background: #eee;">初期化中...</div>
+  <div id="result" style="margin-top: 20px; font-weight: bold; color: blue;"></div>
+
+  <script>
+    const liffId = "2009266487-GEiMe9Ei"; // あなたのLIFF ID
+
+    window.onload = function() {
+      liff.init({ liffId: liffId })
+        .then(() => {
+          document.getElementById('status').innerText = "LIFF初期化成功！";
+          if (!liff.isLoggedIn()) {
+            document.getElementById('status').innerText = "ログイン中...";
+            liff.login();
+          } else {
+            const profile = liff.getContext();
+            document.getElementById('result').innerText = "取得成功！ UID: " + profile.userId;
+          }
+        })
+        .catch((err) => {
+          document.getElementById('status').innerText = "エラー: " + err;
+        });
+    };
+  </script>
+</body>
+</html>
