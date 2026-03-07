@@ -1,46 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>練習参加出欠表</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #f4f4f4; }
+    .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .btn-group { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+    button { padding: 15px; border: none; border-radius: 5px; color: white; font-weight: bold; font-size: 16px; cursor: pointer; }
+    .btn-ok { background: #28a745; }
+    .btn-maybe { background: #ffc107; color: #333; }
+    .btn-no { background: #dc3545; }
+    #status-msg { margin-top: 10px; color: #666; }
+    .error-log { color: red; font-size: 12px; margin-top: 10px; border-top: 1px solid #ccc; padding-top: 10px; }
+  </style>
+</head>
+<body>
+
 <div class="card">
   <h2 id="display-title">読み込み中...</h2>
-  <div id="msg">LINE連携を確認しています...</div>
+  <div id="status-msg">LINE連携を確認しています...</div>
 
-  <div id="area-attendance" style="display:none;">
-    <button class="btn btn-ok" onclick="send('○')">参加 (○)</button>
-    <button class="btn btn-maybe" onclick="send('△')">遅刻・早退 (△)</button>
-    <button class="btn btn-no" onclick="send('×')">欠席 (×)</button>
+  <div id="area-attendance" style="display:none;" class="btn-group">
+    <button class="btn-ok" onclick="send('○')">参加 (○)</button>
+    <button class="btn-maybe" onclick="send('△')">遅刻・早退 (△)</button>
+    <button class="btn-no" onclick="send('×')">欠席 (×)</button>
   </div>
 
-  <div id="area-registration" style="display:none;">
+  <div id="area-registration" style="display:none; margin-top:20px;">
     <p>名簿から自分の名前を選んでください：</p>
-    <select id="name-list" style="width:100%; padding:10px; margin-bottom:15px;"></select>
+    <select id="name-list" style="width:100%; padding:10px; margin-bottom:15px; font-size:16px;"></select>
     <button class="btn-ok" style="width:100%;" onclick="link()">この名前で登録する</button>
   </div>
+
+  <div id="debug-log" class="error-log"></div>
 </div>
 
 <script>
-  // ★GASのURLをセットしてください
+  // ★あなたのGASデプロイURLをここに！
   const GAS_URL = "https://script.google.com/macros/s/AKfycbzemI00pUiK7qifw22174ce3CL2qynXwtCnvVEDZJAtH_-OsvCT3EY3ghhvAZpAzUYV/exec";
 
-  async function init() {
-    await liff.init({ liffId: "2009266487-GEiMe9Ei" });
-    if (!liff.isLoggedIn()) { liff.login(); return; }
-    
-    const profile = await liff.getProfile();
-    const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=get`);
-    const data = await res.json();
+  function writeLog(msg) {
+    document.getElementById('debug-log').innerText += msg + "\n";
+  }
 
-    if (data.status === "success") {
-      document.getElementById('display-title').innerText = `こんにちは、${data.name} さん`;
-      document.getElementById('msg').innerText = "本日の練習の出欠を選択してください。";
-      document.getElementById('area-attendance').style.display = "block";
-    } else if (data.status === "unregistered") {
-      document.getElementById('display-title').innerText = "初回利用者さま";
-      document.getElementById('msg').innerText = "名簿との紐付けが必要です。";
-      document.getElementById('area-registration').style.display = "block";
-      const select = document.getElementById('name-list');
-      data.list.forEach(item => {
-        const opt = document.createElement('option');
-        opt.value = item.id; opt.text = item.name;
-        select.appendChild(opt);
-      });
+  async function init() {
+    try {
+      if (typeof liff === 'undefined') {
+        throw new Error("LINE SDKが読み込まれていません。ネットワークかタグを確認してください。");
+      }
+
+      await liff.init({ liffId: "2009266487-GEiMe9Ei" });
+      if (!liff.isLoggedIn()) { liff.login(); return; }
+      
+      const profile = await liff.getProfile();
+      writeLog("LINEプロファイル取得成功");
+
+      const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=get`);
+      const data = await res.json();
+      writeLog("GAS通信成功: " + data.status);
+
+      if (data.status === "success") {
+        document.getElementById('display-title').innerText = `こんにちは、${data.name} さん`;
+        document.getElementById('status-msg').innerText = "本日の練習の出欠を選択してください。";
+        document.getElementById('area-attendance').style.display = "flex";
+      } else if (data.status === "unregistered") {
+        document.getElementById('display-title').innerText = "初回利用者さま";
+        document.getElementById('status-msg').innerText = "名簿との紐付けが必要です。";
+        document.getElementById('area-registration').style.display = "block";
+        const select = document.getElementById('name-list');
+        data.list.forEach(item => {
+          const opt = document.createElement('option');
+          opt.value = item.id; opt.text = item.name;
+          select.appendChild(opt);
+        });
+      }
+    } catch (err) {
+      document.getElementById('status-msg').innerText = "エラーが発生しました";
+      writeLog("エラー詳細: " + err.message);
     }
   }
 
@@ -50,17 +89,19 @@
     const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=link&family_id=${fid}`);
     const data = await res.json();
     alert(data.message);
-    location.reload(); // 登録後は再読込して出欠画面へ
+    location.reload();
   }
 
   async function send(st) {
     const profile = await liff.getProfile();
-    document.getElementById('msg').innerText = "スプレッドシートに記録中...";
+    document.getElementById('status-msg').innerText = "スプレッドシートに記録中...";
     const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=update&status=${st}`);
     const data = await res.json();
     alert(data.message);
     liff.closeWindow();
   }
+
   window.onload = init;
 </script>
-
+</body>
+</html>
