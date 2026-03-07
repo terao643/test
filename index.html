@@ -6,15 +6,18 @@
   <title>練習参加出欠表</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    body { font-family: sans-serif; padding: 20px; background: #f4f4f4; }
-    .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .btn-group { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
-    button { padding: 15px; border: none; border-radius: 5px; color: white; font-weight: bold; font-size: 16px; cursor: pointer; }
+    body { font-family: sans-serif; padding: 20px; background: #f4f4f4; color: #333; }
+    .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; margin: auto; }
+    h2 { margin-top: 0; color: #2c3e50; font-size: 1.2rem; }
+    .btn-group { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+    button { padding: 16px; border: none; border-radius: 8px; color: white; font-weight: bold; font-size: 1rem; cursor: pointer; transition: 0.2s; }
     .btn-ok { background: #28a745; }
-    .btn-maybe { background: #ffc107; color: #333; }
-    .btn-no { background: #dc3545; }
-    #status-msg { margin-top: 10px; color: #666; }
-    .error-log { color: red; font-size: 12px; margin-top: 10px; border-top: 1px solid #ccc; padding-top: 10px; }
+    .btn-maybe { background: #f39c12; }
+    .btn-no { background: #e74c3c; }
+    button:active { opacity: 0.7; transform: scale(0.98); }
+    select { width: 100%; padding: 12px; font-size: 1rem; border-radius: 8px; border: 1px solid #ccc; margin-bottom: 15px; }
+    #status-msg { margin-top: 15px; font-size: 0.9rem; color: #666; text-align: center; }
+    .error-box { background: #fee; color: #c00; padding: 10px; border-radius: 5px; margin-top: 20px; font-size: 11px; display: none; }
   </style>
 </head>
 <body>
@@ -30,37 +33,36 @@
   </div>
 
   <div id="area-registration" style="display:none; margin-top:20px;">
-    <p>名簿から自分の名前を選んでください：</p>
-    <select id="name-list" style="width:100%; padding:10px; margin-bottom:15px; font-size:16px;"></select>
+    <p style="font-size: 0.9rem;">名簿から自分の名前を選択してください：</p>
+    <select id="name-list"></select>
     <button class="btn-ok" style="width:100%;" onclick="link()">この名前で登録する</button>
   </div>
 
-  <div id="debug-log" class="error-log"></div>
+  <div id="error-box" class="error-box"></div>
 </div>
 
 <script>
-  // ★あなたのGASデプロイURLをここに！
+  // ★ここをご自身のGASデプロイURLに書き換えてください
   const GAS_URL = "https://script.google.com/macros/s/AKfycbzemI00pUiK7qifw22174ce3CL2qynXwtCnvVEDZJAtH_-OsvCT3EY3ghhvAZpAzUYV/exec";
 
-  function writeLog(msg) {
-    document.getElementById('debug-log').innerText += msg + "\n";
-  }
-
   async function init() {
+    const errorBox = document.getElementById('error-box');
     try {
+      // 1. SDKの読み込み確認
       if (typeof liff === 'undefined') {
-        throw new Error("LINE SDKが読み込まれていません。ネットワークかタグを確認してください。");
+        throw new Error("SDKが読み込まれていません。通信状態を確認してください。");
       }
 
+      // 2. LIFF初期化
       await liff.init({ liffId: "2009266487-GEiMe9Ei" });
       if (!liff.isLoggedIn()) { liff.login(); return; }
       
       const profile = await liff.getProfile();
-      writeLog("LINEプロファイル取得成功");
-
+      
+      // 3. GASへデータ取得
       const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=get`);
+      if (!res.ok) throw new Error("GASとの通信に失敗しました。");
       const data = await res.json();
-      writeLog("GAS通信成功: " + data.status);
 
       if (data.status === "success") {
         document.getElementById('display-title').innerText = `こんにちは、${data.name} さん`;
@@ -78,8 +80,9 @@
         });
       }
     } catch (err) {
-      document.getElementById('status-msg').innerText = "エラーが発生しました";
-      writeLog("エラー詳細: " + err.message);
+      errorBox.style.display = "block";
+      errorBox.innerText = "エラー: " + err.message;
+      document.getElementById('status-msg').innerText = "中断しました";
     }
   }
 
@@ -94,7 +97,7 @@
 
   async function send(st) {
     const profile = await liff.getProfile();
-    document.getElementById('status-msg').innerText = "スプレッドシートに記録中...";
+    document.getElementById('status-msg').innerText = "記録中...";
     const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=update&status=${st}`);
     const data = await res.json();
     alert(data.message);
