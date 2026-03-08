@@ -3,81 +3,93 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>チーム出欠管理</title>
+  <title>練習出欠入力</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    :root { --primary: #28a745; --warning: #ffc107; --danger: #dc3545; --gray: #6c757d; }
-    body { font-family: -apple-system, sans-serif; background: #f0f2f5; margin: 0; display: flex; justify-content: center; padding-top: 20px; }
-    .card { background: white; width: 90%; max-width: 400px; padding: 25px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; }
-    h2 { font-size: 1.4rem; color: #333; margin-bottom: 8px; }
-    #status-msg { font-size: 0.9rem; color: #666; margin-bottom: 20px; min-height: 1.2rem; }
-    .btn-group { display: flex; flex-direction: column; gap: 12px; }
-    button { padding: 16px; border: none; border-radius: 12px; color: white; font-weight: bold; font-size: 1.1rem; cursor: pointer; transition: 0.2s; }
-    button:active { transform: scale(0.96); opacity: 0.8; }
-    .btn-ok { background: var(--primary); }
-    .btn-maybe { background: var(--warning); color: #333; }
-    .btn-no { background: var(--danger); }
-    select { width: 100%; padding: 14px; border-radius: 8px; border: 1px solid #ddd; font-size: 1rem; margin-bottom: 20px; appearance: none; background: #fff; }
-    .loading-spinner { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    :root { 
+      --btn-ok: #28a745; --btn-no: #dc3545; --btn-late: #f39c12; --btn-early: #17a2b8; 
+    }
+    body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; background: #f8f9fa; margin: 0; padding: 20px; color: #333; }
+    .container { max-width: 400px; margin: 0 auto; }
+    
+    /* カードスタイル */
+    .card { background: #fff; padding: 24px; border-radius: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); text-align: center; }
+    h2 { font-size: 1.5rem; margin: 0 0 10px 0; }
+    .user-info { font-weight: bold; color: #555; margin-bottom: 20px; font-size: 1.1rem; }
+    
+    /* ★Fix版：2x2 グリッドレイアウト */
+    .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 10px; }
+    .btn-grid button { 
+      height: 100px; border: none; border-radius: 15px; color: white; 
+      font-size: 1.1rem; font-weight: bold; cursor: pointer; transition: 0.2s;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .btn-grid button span { font-size: 1.8rem; margin-bottom: 5px; }
+    .btn-grid button:active { transform: scale(0.95); opacity: 0.8; }
+
+    /* 凡例カラー */
+    .ok { background: var(--btn-ok); }
+    .no { background: var(--btn-no); }
+    .late { background: var(--btn-late); }
+    .early { background: var(--btn-early); }
+
+    /* 初回登録用 */
+    select { width: 100%; padding: 15px; border-radius: 10px; border: 1px solid #ddd; font-size: 1rem; margin-bottom: 20px; background: #fff; }
+    .link-btn { width: 100%; background: #444; color: #fff; padding: 15px; border-radius: 10px; border: none; font-weight: bold; }
+
+    #msg { margin-top: 15px; font-size: 0.9rem; color: #888; min-height: 1.2rem; }
   </style>
 </head>
 <body>
 
-<div class="card">
-  <div id="loading-view"><div class="loading-spinner"></div><p>通信中...</p></div>
+<div class="container">
+  <div class="card">
+    <div id="display-title">読み込み中...</div>
+    <div id="user-info" class="user-info"></div>
 
-  <div id="main-view" style="display:none;">
-    <h2 id="display-title"></h2>
-    <div id="status-msg"></div>
-
-    <div id="area-attendance" style="display:none;" class="btn-group">
-      <button class="btn-ok" onclick="send('○')">参加 (○)</button>
-      <button class="btn-maybe" onclick="send('△')">遅刻・早退 (△)</button>
-      <button class="btn-no" onclick="send('×')">欠席 (×)</button>
+    <div id="area-attendance" style="display:none;">
+      <div class="btn-grid">
+        <button class="ok" onclick="send('○')"><span>○</span>参加</button>
+        <button class="no" onclick="send('×')"><span>×</span>欠席</button>
+        <button class="late" onclick="send('△')"><span>△</span>遅刻</button>
+        <button class="early" onclick="send('早')"><span>早</span>早退</button>
+      </div>
+      <div id="msg">タップすると記録されます</div>
     </div>
 
     <div id="area-registration" style="display:none;">
-      <p style="text-align:left; font-size:0.9rem;">名簿から自分の名前を選択してください：</p>
+      <p style="text-align:left;">名簿から選択してください：</p>
       <select id="name-list"></select>
-      <button class="btn-ok" style="width:100%;" onclick="link()">この名前で登録する</button>
+      <button class="link-btn" onclick="link()">この名前で登録</button>
     </div>
   </div>
 </div>
 
 <script>
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbzemI00pUiK7qifw22174ce3CL2qynXwtCnvVEDZJAtH_-OsvCT3EY3ghhvAZpAzUYV/exec"; // 変更必須
+  const GAS_URL = "あなたのGASデプロイURL"; 
   const LIFF_ID = "2009266487-GEiMe9Ei";
 
   async function init() {
-    try {
-      await liff.init({ liffId: LIFF_ID });
-      if (!liff.isLoggedIn()) { liff.login(); return; }
-      const profile = await liff.getProfile();
-      
-      const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=get`);
-      const data = await res.json();
+    await liff.init({ liffId: LIFF_ID });
+    if (!liff.isLoggedIn()) { liff.login(); return; }
+    const profile = await liff.getProfile();
+    
+    const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=get`);
+    const data = await res.json();
 
-      document.getElementById('loading-view').style.display = "none";
-      document.getElementById('main-view').style.display = "block";
-
-      if (data.status === "success") {
-        document.getElementById('display-title').innerText = `${data.name} さん`;
-        document.getElementById('status-msg').innerText = "本日の練習の出欠を選択してください。";
-        document.getElementById('area-attendance').style.display = "flex";
-      } else {
-        document.getElementById('display-title').innerText = "初回登録";
-        document.getElementById('status-msg').innerText = "名簿との紐付けが必要です。";
-        document.getElementById('area-registration').style.display = "block";
-        const select = document.getElementById('name-list');
-        data.list.forEach(item => {
-          const opt = document.createElement('option');
-          opt.value = item.id; opt.text = item.name;
-          select.appendChild(opt);
-        });
-      }
-    } catch (e) {
-      alert("エラー: " + e.message);
+    if (data.status === "success") {
+      document.getElementById('display-title').innerText = "出欠確認";
+      document.getElementById('user-info').innerText = data.name + " さん";
+      document.getElementById('area-attendance').style.display = "block";
+    } else {
+      document.getElementById('display-title').innerText = "初回登録";
+      document.getElementById('area-registration').style.display = "block";
+      const select = document.getElementById('name-list');
+      data.list.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.id; opt.text = item.name;
+        select.appendChild(opt);
+      });
     }
   }
 
@@ -92,19 +104,12 @@
 
   async function send(st) {
     const profile = await liff.getProfile();
-    document.getElementById('status-msg').innerText = "送信中...";
-    document.getElementById('area-attendance').style.pointerEvents = "none";
-    document.getElementById('area-attendance').style.opacity = "0.5";
+    document.getElementById('msg').innerText = "送信中...";
+    document.querySelector('.btn-grid').style.pointerEvents = "none";
     
-    try {
-      const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=update&status=${st}`);
-      const data = await res.json();
-      alert(data.message);
-      liff.closeWindow();
-    } catch (e) {
-      alert("送信に失敗しました。");
-      location.reload();
-    }
+    const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=update&status=${st}`);
+    const data = await res.json();
+    liff.closeWindow();
   }
 
   window.onload = init;
