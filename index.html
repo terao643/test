@@ -2,74 +2,71 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>練習参加出欠表</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>チーム出欠管理</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    body { font-family: sans-serif; padding: 20px; background: #f4f4f4; color: #333; }
-    .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; margin: auto; }
-    h2 { margin-top: 0; color: #2c3e50; font-size: 1.2rem; }
-    .btn-group { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
-    button { padding: 16px; border: none; border-radius: 8px; color: white; font-weight: bold; font-size: 1rem; cursor: pointer; transition: 0.2s; }
-    .btn-ok { background: #28a745; }
-    .btn-maybe { background: #f39c12; }
-    .btn-no { background: #e74c3c; }
-    button:active { opacity: 0.7; transform: scale(0.98); }
-    select { width: 100%; padding: 12px; font-size: 1rem; border-radius: 8px; border: 1px solid #ccc; margin-bottom: 15px; }
-    #status-msg { margin-top: 15px; font-size: 0.9rem; color: #666; text-align: center; }
-    .error-box { background: #fee; color: #c00; padding: 10px; border-radius: 5px; margin-top: 20px; font-size: 11px; display: none; }
+    :root { --primary: #28a745; --warning: #ffc107; --danger: #dc3545; --gray: #6c757d; }
+    body { font-family: -apple-system, sans-serif; background: #f0f2f5; margin: 0; display: flex; justify-content: center; padding-top: 20px; }
+    .card { background: white; width: 90%; max-width: 400px; padding: 25px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; }
+    h2 { font-size: 1.4rem; color: #333; margin-bottom: 8px; }
+    #status-msg { font-size: 0.9rem; color: #666; margin-bottom: 20px; min-height: 1.2rem; }
+    .btn-group { display: flex; flex-direction: column; gap: 12px; }
+    button { padding: 16px; border: none; border-radius: 12px; color: white; font-weight: bold; font-size: 1.1rem; cursor: pointer; transition: 0.2s; }
+    button:active { transform: scale(0.96); opacity: 0.8; }
+    .btn-ok { background: var(--primary); }
+    .btn-maybe { background: var(--warning); color: #333; }
+    .btn-no { background: var(--danger); }
+    select { width: 100%; padding: 14px; border-radius: 8px; border: 1px solid #ddd; font-size: 1rem; margin-bottom: 20px; appearance: none; background: #fff; }
+    .loading-spinner { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
 
 <div class="card">
-  <h2 id="display-title">読み込み中...</h2>
-  <div id="status-msg">LINE連携を確認しています...</div>
+  <div id="loading-view"><div class="loading-spinner"></div><p>通信中...</p></div>
 
-  <div id="area-attendance" style="display:none;" class="btn-group">
-    <button class="btn-ok" onclick="send('○')">参加 (○)</button>
-    <button class="btn-maybe" onclick="send('△')">遅刻・早退 (△)</button>
-    <button class="btn-no" onclick="send('×')">欠席 (×)</button>
+  <div id="main-view" style="display:none;">
+    <h2 id="display-title"></h2>
+    <div id="status-msg"></div>
+
+    <div id="area-attendance" style="display:none;" class="btn-group">
+      <button class="btn-ok" onclick="send('○')">参加 (○)</button>
+      <button class="btn-maybe" onclick="send('△')">遅刻・早退 (△)</button>
+      <button class="btn-no" onclick="send('×')">欠席 (×)</button>
+    </div>
+
+    <div id="area-registration" style="display:none;">
+      <p style="text-align:left; font-size:0.9rem;">名簿から自分の名前を選択してください：</p>
+      <select id="name-list"></select>
+      <button class="btn-ok" style="width:100%;" onclick="link()">この名前で登録する</button>
+    </div>
   </div>
-
-  <div id="area-registration" style="display:none; margin-top:20px;">
-    <p style="font-size: 0.9rem;">名簿から自分の名前を選択してください：</p>
-    <select id="name-list"></select>
-    <button class="btn-ok" style="width:100%;" onclick="link()">この名前で登録する</button>
-  </div>
-
-  <div id="error-box" class="error-box"></div>
 </div>
 
 <script>
-  // ★ここをご自身のGASデプロイURLに書き換えてください
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbzemI00pUiK7qifw22174ce3CL2qynXwtCnvVEDZJAtH_-OsvCT3EY3ghhvAZpAzUYV/exec";
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbzemI00pUiK7qifw22174ce3CL2qynXwtCnvVEDZJAtH_-OsvCT3EY3ghhvAZpAzUYV/exec"; // 変更必須
+  const LIFF_ID = "2009266487-GEiMe9Ei";
 
   async function init() {
-    const errorBox = document.getElementById('error-box');
     try {
-      // 1. SDKの読み込み確認
-      if (typeof liff === 'undefined') {
-        throw new Error("SDKが読み込まれていません。通信状態を確認してください。");
-      }
-
-      // 2. LIFF初期化
-      await liff.init({ liffId: "2009266487-GEiMe9Ei" });
+      await liff.init({ liffId: LIFF_ID });
       if (!liff.isLoggedIn()) { liff.login(); return; }
-      
       const profile = await liff.getProfile();
       
-      // 3. GASへデータ取得
       const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=get`);
-      if (!res.ok) throw new Error("GASとの通信に失敗しました。");
       const data = await res.json();
 
+      document.getElementById('loading-view').style.display = "none";
+      document.getElementById('main-view').style.display = "block";
+
       if (data.status === "success") {
-        document.getElementById('display-title').innerText = `こんにちは、${data.name} さん`;
+        document.getElementById('display-title').innerText = `${data.name} さん`;
         document.getElementById('status-msg').innerText = "本日の練習の出欠を選択してください。";
         document.getElementById('area-attendance').style.display = "flex";
-      } else if (data.status === "unregistered") {
-        document.getElementById('display-title').innerText = "初回利用者さま";
+      } else {
+        document.getElementById('display-title').innerText = "初回登録";
         document.getElementById('status-msg').innerText = "名簿との紐付けが必要です。";
         document.getElementById('area-registration').style.display = "block";
         const select = document.getElementById('name-list');
@@ -79,10 +76,8 @@
           select.appendChild(opt);
         });
       }
-    } catch (err) {
-      errorBox.style.display = "block";
-      errorBox.innerText = "エラー: " + err.message;
-      document.getElementById('status-msg').innerText = "中断しました";
+    } catch (e) {
+      alert("エラー: " + e.message);
     }
   }
 
@@ -97,11 +92,19 @@
 
   async function send(st) {
     const profile = await liff.getProfile();
-    document.getElementById('status-msg').innerText = "記録中...";
-    const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=update&status=${st}`);
-    const data = await res.json();
-    alert(data.message);
-    liff.closeWindow();
+    document.getElementById('status-msg').innerText = "送信中...";
+    document.getElementById('area-attendance').style.pointerEvents = "none";
+    document.getElementById('area-attendance').style.opacity = "0.5";
+    
+    try {
+      const res = await fetch(`${GAS_URL}?uid=${profile.userId}&action=update&status=${st}`);
+      const data = await res.json();
+      alert(data.message);
+      liff.closeWindow();
+    } catch (e) {
+      alert("送信に失敗しました。");
+      location.reload();
+    }
   }
 
   window.onload = init;
