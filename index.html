@@ -70,7 +70,7 @@
   let rawData = []; 
   let days = [];    
 
-  async function init() {
+async function init() {
     // ★URLからモードを判定
     const params = new URLSearchParams(window.location.search);
     IS_VIEW_MODE = params.get('mode') === 'view';
@@ -89,6 +89,8 @@
       if (data.status === "success") {
         document.getElementById("main-view").style.display = "flex";
         
+        days = data.data.dates; // ★ここが抜けていました！
+
         if (IS_VIEW_MODE) {
           // ★閲覧モード：タイトル変更＆名簿順を維持
           document.getElementById("weekTitle").innerText = data.data.weekLabel + " (閲覧用)";
@@ -193,3 +195,4 @@
 </script>
 </body>
 </html>
+
