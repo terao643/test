@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
+    /* CSSはご提示いただいた「OK版」のデザインを完全に踏襲しています */
     :root {
       --main-green: #27ae60; --sat-blue: #2980b9; --sun-red: #d35400;
       --bg-light: #f4f7f8; --my-row-bg: #fffbe6; --name-col-width: 70px;
@@ -27,21 +28,21 @@
     .my-row { background-color: var(--my-row-bg) !important; }
     .status-cell { font-size: 24px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
     
-    /* ★閲覧モード時はカーソルを通常に戻す */
-    .view-mode .status-cell { cursor: default; }
+    .view-mode .status-cell { cursor: default; } /* 表示モード時は指マークを出さない */
 
     .status-〇 { color: var(--main-green); font-weight: bold; } 
     .status-△ { color: #f39c12; font-weight: bold; }
     .status-× { color: #7f8c8d; font-weight: bold; }
     .status-- { color: #ccc; }
     #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 8px 16px; border-radius: 20px; font-size: 12px; display: none; z-index: 1000; }
-    
     #registration-view { display: none; padding: 20px; text-align: center; background: white; border-radius: 8px; margin: 20px; }
     select { width: 100%; padding: 10px; margin: 15px 0; font-size: 16px; }
     .btn-link { background: var(--main-green); color: white; border: none; padding: 12px 20px; border-radius: 5px; width: 100%; font-size: 16px; cursor: pointer; }
   </style>
 </head>
-<body id="bodyTag"> <div id="registration-view">
+<body id="bodyTag">
+  
+  <div id="registration-view">
     <h3>初回登録</h3>
     <p style="font-size: 14px;">名簿から選択してください</p>
     <select id="name-list"></select>
@@ -62,7 +63,7 @@
   const LIFF_ID = "2009266487-GEiMe9Ei";
 
   let MY_LINE_ID = "";
-  let IS_VIEW_MODE = false; // ★モード判定フラグ
+  let IS_VIEW_MODE = false;
   const UI_CONFIG = {
     signs: ["〇", "△", "×", "-"],
     labels: { "〇": "参加", "△": "遅参", "×": "欠席", "-": "未回答" }
@@ -70,7 +71,7 @@
   let rawData = []; 
   let days = [];    
 
-async function init() {
+  async function init() {
     const params = new URLSearchParams(window.location.search);
     IS_VIEW_MODE = params.get('mode') === 'view';
     if (IS_VIEW_MODE) document.getElementById("bodyTag").classList.add("view-mode");
@@ -81,15 +82,19 @@ async function init() {
       const profile = await liff.getProfile();
       MY_LINE_ID = profile.userId;
 
-      const res = await fetch(`${GAS_URL}?uid=${MY_LINE_ID}&action=get&t=${new Date().getTime()}`);
+      // ★同期対策：URLの末尾に時刻を付け、さらに cache: "no-cache" を追加して強制読み込み
+      const res = await fetch(`${GAS_URL}?uid=${MY_LINE_ID}&action=get&t=${new Date().getTime()}`, {
+        cache: "no-cache"
+      });
       const data = await res.json();
 
-      if (data.status === "success") {
-        // ★ データの代入を確実に行う
-        days = data.data.dates || []; 
+      if (data.status === "success" && data.data) {
+        document.getElementById("main-view").style.display = "flex";
+        
+        // データの代入（ここが重要です）
+        days = data.data.dates || [];
         const families = data.data.families || [];
 
-        document.getElementById("main-view").style.display = "flex";
         document.getElementById("weekTitle").innerText = data.data.weekLabel + (IS_VIEW_MODE ? " (閲覧用)" : "");
 
         if (IS_VIEW_MODE) {
@@ -100,7 +105,7 @@ async function init() {
           rawData = myData ? [myData, ...otherData] : families;
         }
 
-        render(); // データがセットされた後に実行
+        render();
       } else if (data.status === "unregistered") {
         document.getElementById("registration-view").style.display = "block";
         const select = document.getElementById("name-list");
@@ -111,23 +116,15 @@ async function init() {
         });
       }
     } catch (e) {
-      console.error(e); // ログにも詳細を出す
+      console.error(e);
       document.getElementById("weekTitle").innerHTML = `<span style="color:red; font-size:14px;">エラー: ${e.message}</span>`;
     }
   }
 
-async function link() {
-    const fid = document.getElementById("name-list").value;
-    const res = await fetch(`${GAS_URL}?uid=${MY_LINE_ID}&action=link&family_id=${fid}`);
-    await res.json();
-    location.reload();
-  }
-
-function render() {
-    // ★ 安全策：daysが空の場合は処理を中断する
+  function render() {
     if (!days || days.length === 0) return;
 
-    // 集計用配列の初期化をより安全な書き方に変更
+    // 集計初期化：daysの長さに基づいて確実に作成
     const totals = [];
     for (let i = 0; i < days.length; i++) {
       let obj = {};
@@ -135,13 +132,15 @@ function render() {
       totals.push(obj);
     }
 
-    // 集計処理
+    // 集計処理：安全ガード付き
     rawData.forEach(f => {
-      f.statuses.forEach((s, i) => {
-        if (totals[i] && totals[i].hasOwnProperty(s)) {
-          totals[i][s]++;
-        }
-      });
+      if (f.statuses) {
+        f.statuses.forEach((s, i) => {
+          if (totals[i] && totals[i].hasOwnProperty(s)) {
+            totals[i][s]++;
+          }
+        });
+      }
     });
 
     let html = `<thead><tr><th class="name-col-head">団員父兄</th>`;
@@ -149,7 +148,6 @@ function render() {
       let cls = (d.includes("日") || d.includes("祝")) ? "sun" : d.includes("土") ? "sat" : "";
       let countHtml = `<div class="count-box">`;
       UI_CONFIG.signs.forEach(s => {
-        // UI_CONFIG.labels[s] が存在しない場合のガード
         const label = UI_CONFIG.labels[s] || "";
         countHtml += `<div class="count-row"><span>${s}${label}</span><span class="count-num">${totals[i][s]}</span></div>`;
       });
@@ -168,11 +166,10 @@ function render() {
       html += "</tr>";
     });
     document.getElementById("mainTable").innerHTML = html + "</tbody>";
-  } 
-  
-async function toggle(fIdx, dIdx) {
-    // ★【スマホ対策】関数内でもブロック。閲覧モードなら何もしないで終了
-    if (IS_VIEW_MODE) return; 
+  }
+
+  async function toggle(fIdx, dIdx) {
+    if (IS_VIEW_MODE) return;
 
     const cycle = UI_CONFIG.signs;
     let next = cycle[(cycle.indexOf(rawData[fIdx].statuses[dIdx]) + 1) % cycle.length];
@@ -181,7 +178,8 @@ async function toggle(fIdx, dIdx) {
     render(); 
     showToast("更新中...");
     
-    const res = await fetch(`${GAS_URL}?uid=${MY_LINE_ID}&action=update&familyId=${rawData[fIdx].id}&dateLabel=${encodeURIComponent(days[dIdx])}&status=${encodeURIComponent(next)}`);
+    // ★更新時にもキャッシュバスター(t=)を付与して確実に反映させる
+    const res = await fetch(`${GAS_URL}?uid=${MY_LINE_ID}&action=update&familyId=${rawData[fIdx].id}&dateLabel=${encodeURIComponent(days[dIdx])}&status=${encodeURIComponent(next)}&t=${new Date().getTime()}`);
     const data = await res.json();
     showToast(data.message);
   }
@@ -196,5 +194,3 @@ async function toggle(fIdx, dIdx) {
 </script>
 </body>
 </html>
-
-
