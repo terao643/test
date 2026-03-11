@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    /* OKだったデザインを完全に復元 */
     :root {
       --main-green: #27ae60; --sat-blue: #2980b9; --sun-red: #d35400;
       --bg-light: #f4f7f8; --my-row-bg: #fffbe6; --name-col-width: 70px;
@@ -33,7 +32,6 @@
     .status-× { color: #7f8c8d; font-weight: bold; }
     .status-- { color: #ccc; }
     
-    /* ロード中表示 */
     #loading { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.8); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:9999; }
     .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--main-green); border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -60,7 +58,7 @@
   <div id="toast"></div>
 
 <script>
-  const GAS_URL = "https://script.google.com/macros/s/AKfycby9ykJ5pFhp7rSh0_zS3kuzWukA69vZou-XARlhdyG4Cjt_qPls5ULajekYXZj1vvZV/exec"; // ★要更新
+  const GAS_URL = "https://script.google.com/macros/s/AKfycby9ykJ5pFhp7rSh0_zS3kuzWukA69vZou-XARlhdyG4Cjt_qPls5ULajekYXZj1vvZV/exec"; // ★必ず更新
   const LIFF_ID = "2009266487-GEiMe9Ei";
 
   let MY_LINE_ID = "";
@@ -81,10 +79,15 @@
 
     try {
       await liff.init({ liffId: LIFF_ID });
-      if (!liff.isLoggedIn()) { liff.login(); return; }
-      const profile = await liff.getProfile();
-      MY_LINE_ID = profile.userId;
+      if (liff.isLoggedIn()) {
+        const profile = await liff.getProfile();
+        MY_LINE_ID = profile.userId;
+      } else if (!IS_VIEW_MODE) {
+        // 閲覧モード以外で未ログインならログイン
+        liff.login(); return;
+      }
 
+      // MY_LINE_IDが空でもviewモードなら取得できるようにする
       const res = await fetch(`${GAS_URL}?uid=${MY_LINE_ID}&action=get&${getAntiCacheKey()}`, { cache: "no-cache" });
       const data = await res.json();
 
@@ -95,7 +98,7 @@
         document.getElementById("weekTitle").innerText = data.data.weekLabel + (IS_VIEW_MODE ? " (閲覧用)" : "");
 
         if (IS_VIEW_MODE) {
-          rawData = families;
+          rawData = families; // 閲覧モードはそのまま表示
         } else {
           const myData = families.find(f => f.lineId === MY_LINE_ID);
           const otherData = families.filter(f => f.lineId !== MY_LINE_ID);
@@ -125,19 +128,18 @@
     let html = `<thead><tr><th class="name-col-head">団員父兄</th>`;
     days.forEach((d, i) => {
       let cls = (d.includes("日") || d.includes("祝")) ? "sun" : d.includes("土") ? "sat" : "";
-      let countHtml = `<div class="count-box">`;
+      html += `<th class="${cls}">${d}<div class="count-box">`;
       UI_CONFIG.signs.forEach(s => {
-        countHtml += `<div class="count-row"><span>${s}${UI_CONFIG.labels[s]}</span><span class="count-num">${totals[i][s]}</span></div>`;
+        html += `<div class="count-row"><span>${s}${UI_CONFIG.labels[s]}</span><span class="count-num">${totals[i][s]}</span></div>`;
       });
-      html += `<th class="${cls}">${d}${countHtml}</div></th>`;
+      html += `</div></th>`;
     });
     html += "</tr></thead><tbody>";
 
     rawData.forEach((f, fIdx) => {
-      const isMe = (f.lineId === MY_LINE_ID);
+      const isMe = (MY_LINE_ID && f.lineId === MY_LINE_ID);
       html += `<tr class="${isMe ? 'my-row' : ''}"><td class="name-cell">${f.name}</td>`;
       f.statuses.forEach((s, dIdx) => {
-        // ★ 閲覧モードではない、かつ自分の行である場合のみクリックを許可
         const canEdit = !IS_VIEW_MODE && isMe;
         const clickAttr = canEdit ? `onclick="toggle(${fIdx},${dIdx})"` : "";
         html += `<td class="status-cell status-${s}" ${clickAttr}>${s}</td>`;
