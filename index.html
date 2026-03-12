@@ -78,6 +78,7 @@
    * アプリの設定値。VBAの「定数定義」に相当。
    */
   const SETTINGS = {
+    // ★ デプロイした新しいGASのURLに書き換えてください ★
     GAS_URL: "https://script.google.com/macros/s/AKfycbwtyh1X3-Q1ER93O4tjoW5Xi7qtiQe6QlrXDRD8iZMK8VNL-vHnccel0QGnrM-xJ1RC/exec", 
     LIFF_ID: "2009266487-GEiMe9Ei"
   };
@@ -109,14 +110,26 @@
     try {
       // LINE内ブラウザの機能を使えるようにする
       await liff.init({ liffId: SETTINGS.LIFF_ID });
+      
       if (!IS_VIEW_MODE) {
         if (!liff.isLoggedIn()) { liff.login(); return; }
         const profile = await liff.getProfile();
         MY_LINE_ID = profile.userId; // LINE IDの取得
       }
-      await fetchData(); // GASからデータを持ってくる
+      
+      // データ取得（失敗してもalertを出さず、fetchData内でリトライを試みる）
+      await fetchData();
+      
     } catch (e) {
-      alert("初期化エラー: " + e.message);
+      console.error("Init Error:", e);
+      // 技術予見/対策: 画面復帰時のネットワーク遮断による「Load failed」対策。
+      // 即座にエラー画面を出さず、1秒後に自動リロードを試みます。
+      if (e.message && e.message.includes("failed")) {
+        console.log("Network failure detected. Retrying...");
+        setTimeout(() => window.location.reload(), 1000); 
+      } else {
+        alert("初期化エラー: " + e.message);
+      }
     } finally {
       // データの有無にかかわらず独自ローディングを非表示にする
       if (rawData.length > 0 || IS_VIEW_MODE) document.getElementById("loading").style.display = "none";
@@ -131,30 +144,47 @@
   }
 
   /**
-   * GAS（サーバー）からデータを取得する非同期関数
+   * GAS（サーバー）からデータを取得する非同期関数（リトライ機能付き）
+   * 技術背景: 復帰時の不安定なネットワークを考慮し、1回失敗しても即座にエラーにせず、
+   * 微小な待ち時間を置いてから再試行（再帰呼び出し）します。
    */
-  async function fetchData() {
+  async function fetchData(retryCount = 0) {
     // 予見対策: ブラウザのキャッシュによって古いデータが表示されるのを防ぐため、
     // URLの末尾に v=(現在時刻) を付与して、常に新しいリクエストとして認識させます。
     const url = `${SETTINGS.GAS_URL}?uid=${MY_LINE_ID}&action=get&mode=${IS_VIEW_MODE?'view':''}&v=${Date.now()}`;
-    const res = await fetch(url);
-    const data = await res.json();
+    
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Network response was not ok"); // 通信成功だが中身がエラーの場合
+      
+      const data = await res.json();
 
-    if (data.status === "success") {
-      days = data.data.dates;
-      rawData = data.data.families;
-      document.getElementById("main-view").style.display = "flex";
-      document.getElementById("weekTitle").innerText = data.data.weekLabel + (IS_VIEW_MODE ? " (閲覧用)" : "");
-      if(!IS_VIEW_MODE) document.getElementById("footer").style.display = "block";
-      render(); // テーブルを描画
-    } else if (data.status === "unregistered") {
-      // LINE IDがまだスプレッドシートにない場合は登録画面へ
-      document.getElementById("loading").style.display = "none";
-      document.getElementById("registration-view").style.display = "block";
-      const select = document.getElementById("name-list");
-      data.list.forEach(item => {
-        let opt = document.createElement("option"); opt.value = item.id; opt.text = item.name; select.appendChild(opt);
-      });
+      if (data.status === "success") {
+        days = data.data.dates;
+        rawData = data.data.families;
+        document.getElementById("main-view").style.display = "flex";
+        document.getElementById("weekTitle").innerText = data.data.weekLabel + (IS_VIEW_MODE ? " (閲覧用)" : "");
+        if(!IS_VIEW_MODE) document.getElementById("footer").style.display = "block";
+        render(); // テーブルを描画
+      } else if (data.status === "unregistered") {
+        // LINE IDがまだスプレッドシートにない場合は登録画面へ
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("registration-view").style.display = "block";
+        const select = document.getElementById("name-list");
+        data.list.forEach(item => {
+          let opt = document.createElement("option"); opt.value = item.id; opt.text = item.name; select.appendChild(opt);
+        });
+      }
+    } catch (e) {
+      // 最大2回までリトライを試みる
+      if (retryCount < 2) {
+        console.warn(`Fetch failed. Retrying... (${retryCount + 1})`);
+        // 0.5秒待ってから再試行（VBAのSleep処理に近い）
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return await fetchData(retryCount + 1);
+      }
+      // リトライし尽くしてもダメな場合のみ、例外を投げてinit()側のcatchに飛ばす
+      throw e;
     }
   }
 
