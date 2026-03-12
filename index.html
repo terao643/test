@@ -30,10 +30,8 @@
     .status-△ { color: #f39c12; font-weight: bold; }
     .status-× { color: #7f8c8d; font-weight: bold; }
     .status-- { color: #ccc; }
-    
     .footer-bar { position: fixed; bottom: 0; left: 0; width: 100%; padding: 10px; background: white; border-top: 1px solid #ddd; display: none; box-sizing: border-box; z-index: 100; }
     .btn-save { width: 100%; background: var(--main-green); color: white; border: none; padding: 12px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; }
-
     #loading { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.9); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:9999; }
     .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--main-green); border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -48,7 +46,7 @@
     <h3>初回登録</h3>
     <p>あなたのお名前を選択してください。</p>
     <select id="name-list"></select>
-    <button class="btn-save" style="background:#27ae60;" onclick="link()">登録する</button>
+    <button class="btn-save" onclick="link()">登録する</button>
   </div>
 
   <div class="container" id="main-view" style="display:none;">
@@ -60,20 +58,17 @@
   </div>
 
 <script>
-  // ==========================================
-  // ★ ここだけを書き換えてください ★
-  // ==========================================
   const SETTINGS = {
     GAS_URL: "https://script.google.com/macros/s/AKfycbwtyh1X3-Q1ER93O4tjoW5Xi7qtiQe6QlrXDRD8iZMK8VNL-vHnccel0QGnrM-xJ1RC/exec", 
     LIFF_ID: "2009266487-GEiMe9Ei"
   };
-  // ==========================================
 
   let MY_LINE_ID = "";
   let IS_VIEW_MODE = false;
   let days = [];
   let rawData = [];
-  let changed = false;
+  let changedDayIndices = new Set(); 
+
   const UI_CONFIG = {
     signs: ["〇", "△", "×", "-"],
     labels: { "〇": "参加", "△": "遅参", "×": "欠席", "-": "未回答" }
@@ -81,13 +76,11 @@
 
   async function init() {
     const params = new URLSearchParams(window.location.search);
-    IS_VIEW_MODE = params.get('mode') === 'view';
+    IS_VIEW_MODE = (params.get('mode') === 'view');
     if (IS_VIEW_MODE) document.getElementById("bodyTag").classList.add("view-mode");
 
     try {
-      if (!SETTINGS.LIFF_ID || SETTINGS.LIFF_ID.includes("YOUR")) throw new Error("LIFF ID未設定");
       await liff.init({ liffId: SETTINGS.LIFF_ID });
-
       if (!IS_VIEW_MODE) {
         if (!liff.isLoggedIn()) { liff.login(); return; }
         const profile = await liff.getProfile();
@@ -95,8 +88,7 @@
       }
       await fetchData();
     } catch (e) {
-      console.error(e);
-      alert("エラー: " + e.message);
+      alert("初期化エラー: " + e.message);
     } finally {
       if (rawData.length > 0 || IS_VIEW_MODE) document.getElementById("loading").style.display = "none";
     }
@@ -161,33 +153,33 @@
     const signs = UI_CONFIG.signs;
     const current = rawData[fIdx].statuses[dIdx];
     rawData[fIdx].statuses[dIdx] = signs[(signs.indexOf(current) + 1) % signs.length];
-    changed = true;
+    changedDayIndices.add(dIdx); 
     render();
   }
 
   async function saveAll() {
-    if (!changed) { liff.closeWindow(); return; }
+    if (changedDayIndices.size === 0) { liff.closeWindow(); return; }
     const loader = document.getElementById("loading");
     const loaderText = document.getElementById("loadingText");
     loader.style.display = "flex";
-    loaderText.innerText = "保存中...";
+    loaderText.innerText = "変更を送信中...";
 
     const myData = rawData.find(f => f.lineId === MY_LINE_ID);
-    const payload = myData.statuses.map((s, i) => ({
+    const payload = Array.from(changedDayIndices).map(dayIdx => ({
       familyId: myData.id,
-      dateLabel: days[i],
-      status: s
+      dateLabel: days[dayIdx],
+      status: myData.statuses[dayIdx]
     }));
 
     try {
       const res = await fetch(`${SETTINGS.GAS_URL}?action=update_all&payload=${encodeURIComponent(JSON.stringify(payload))}`);
       const resData = await res.json();
       if (resData.status === "success") {
-        loaderText.innerText = "完了！";
+        loaderText.innerText = "保存完了！";
         setTimeout(() => { liff.closeWindow(); }, 500);
       }
     } catch (e) {
-      alert("保存に失敗しました。再度お試しください。");
+      alert("保存エラーが発生しました。");
       loader.style.display = "none";
     }
   }
@@ -198,7 +190,7 @@
     try {
       await fetch(`${SETTINGS.GAS_URL}?uid=${MY_LINE_ID}&action=link&family_id=${sid}`);
       window.location.reload();
-    } catch (e) { alert("Error"); }
+    } catch (e) { alert("登録エラー"); }
   }
 
   window.onload = init;
