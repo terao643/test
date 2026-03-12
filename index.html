@@ -2,18 +2,29 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <title>出欠入力システム</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    /* CSS変数: VBAのグローバル定数のように色を一括管理 */
+    /* CSS変数設定。VBAのグローバル定数のような役割です。 */
     :root {
       --main-green: #27ae60; --sat-blue: #2980b9; --sun-red: #d35400;
       --bg-light: #f4f7f8; --my-row-bg: #fffbe6; --name-col-width: 70px;
     }
     body { font-family: sans-serif; margin: 0; background: var(--bg-light); color: #333; overflow: hidden; }
+    
+    /* 技術背景: Flexboxレイアウトを使用。
+      VBAの「自動配置」に近い機能ですが、親(container)がflexになると、
+      子要素は中身の幅まで縮まろうとする性質（副作用）があります。
+    */
     .container { padding: 4px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
     
-    /* テーブルのデザイン設定 */
+    /* 副作用対策: h3(週表示)
+      親がflexになったことで左に寄ってしまったため、width: 100%を明示。
+      これにより、親の幅いっぱいに広がり、その中での text-align: center が効くようになります。
+    */
+    h3 { text-align: center; font-size: 18px; margin: 6px 0; width: 100%; }
+
     .table-wrapper { flex: 1; overflow-y: auto; overflow-x: hidden; border-radius: 8px; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 65px; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     thead { position: sticky; top: 0; z-index: 10; }
@@ -21,28 +32,24 @@
     .name-col-head { width: var(--name-col-width); }
     th.sat { background: var(--sat-blue); } 
     th.sun { background: var(--sun-red); } 
-    
-    /* 集計エリアのスタイル */
     .count-box { font-size: 10px; margin-top: 3px; padding: 2px 4px; background: rgba(0,0,0,0.15); font-weight: normal; line-height: 1.3; }
     .count-row { display: flex; justify-content: space-between; }
-    
-    /* セルのスタイル */
     td { border-bottom: 1px solid #eee; height: 48px; text-align: center; }
     .name-cell { width: var(--name-col-width); padding: 0 2px; font-weight: bold; font-size: 12px; text-align: left; background: #fafafa; border-right: 2px solid var(--main-green); word-break: break-all; }
     .my-row { background-color: var(--my-row-bg) !important; }
     .status-cell { font-size: 24px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
     
-    /* ステータス別の色分け */
+    /* 出欠マーク別の配色設定 */
     .status-〇 { color: var(--main-green); font-weight: bold; } 
     .status-△ { color: #f39c12; font-weight: bold; }
     .status-× { color: #7f8c8d; font-weight: bold; }
     .status-- { color: #ccc; }
     
-    /* フッター・保存ボタン */
+    /* フッター：保存ボタンを常に画面下部に固定 */
     .footer-bar { position: fixed; bottom: 0; left: 0; width: 100%; padding: 10px; background: white; border-top: 1px solid #ddd; display: none; box-sizing: border-box; z-index: 100; }
     .btn-save { width: 100%; background: var(--main-green); color: white; border: none; padding: 12px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; }
     
-    /* ローディングアニメーション */
+    /* 画面中央のローディング（独自実装分） */
     #loading { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.9); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:9999; }
     .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--main-green); border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -68,8 +75,7 @@
 
 <script>
   /**
-   * フロントエンド設定
-   * 技術背景: GAS_URLはデプロイ毎に変わります。LIFF_IDはLINE側で発行されます。
+   * アプリの設定値。VBAの「定数定義」に相当。
    */
   const SETTINGS = {
     GAS_URL: "https://script.google.com/macros/s/AKfycbwtyh1X3-Q1ER93O4tjoW5Xi7qtiQe6QlrXDRD8iZMK8VNL-vHnccel0QGnrM-xJ1RC/exec", 
@@ -78,11 +84,13 @@
 
   let MY_LINE_ID = "";
   let IS_VIEW_MODE = false;
-  let days = [];      // 日程ラベルの配列
-  let rawData = [];   // 全団員の出欠データ
+  let days = [];      // 日程見出しの保持用
+  let rawData = [];   // 全出欠データの保持用
   
-  // 技術背景: Setオブジェクトを使用して変更があった列番号を一意に記録
-  // これにより、複数回タップしても「どの日程が変わったか」だけを管理できる
+  /**
+   * 技術解説: Setオブジェクトを使用して「変更された列番号」を重複なく管理。
+   * これにより、同じ日を2回タップしても保存対象リストが重複しません。
+   */
   let changedDayIndices = new Set(); 
 
   const UI_CONFIG = {
@@ -91,35 +99,43 @@
   };
 
   /**
-   * アプリ起動時の処理 (VBAのWorkbook_Openのようなもの)
-   * async/await: 通信などの「待ち時間」が発生する処理を同期的に書くための構文
+   * アプリの初期化 (VBAの Workbook_Open に相当)
    */
   async function init() {
     const params = new URLSearchParams(window.location.search);
-    IS_VIEW_MODE = (params.get('mode') === 'view'); // URLに ?mode=view があれば閲覧専用
+    IS_VIEW_MODE = (params.get('mode') === 'view'); // URL引数でモード切替
     if (IS_VIEW_MODE) document.getElementById("bodyTag").classList.add("view-mode");
 
     try {
+      // LINE内ブラウザの機能を使えるようにする
       await liff.init({ liffId: SETTINGS.LIFF_ID });
       if (!IS_VIEW_MODE) {
         if (!liff.isLoggedIn()) { liff.login(); return; }
         const profile = await liff.getProfile();
-        MY_LINE_ID = profile.userId; // LINEからログイン者の固有IDを取得
+        MY_LINE_ID = profile.userId; // LINE IDの取得
       }
-      await fetchData();
+      await fetchData(); // GASからデータを持ってくる
     } catch (e) {
       alert("初期化エラー: " + e.message);
     } finally {
-      // データの有無に関わらずローディングを隠す
+      // データの有無にかかわらず独自ローディングを非表示にする
       if (rawData.length > 0 || IS_VIEW_MODE) document.getElementById("loading").style.display = "none";
+      
+      /**
+       * 技術予見/対策: LINEブラウザ上部の「緑のバー」が止まる問題への対応。
+       * fetch等の通信が終わってもブラウザが「まだ完了していない」と誤認することがあるため、
+       * windowの読み込み完了イベントを強制的に発火させて、ブラウザに「終わり」を通知します。
+       */
+      window.dispatchEvent(new Event('load'));
     }
   }
 
   /**
-   * GASからデータを取得
+   * GAS（サーバー）からデータを取得する非同期関数
    */
   async function fetchData() {
-    // v=[現在時刻] を付与することでブラウザキャッシュによる古いデータの読み込みを防止
+    // 予見対策: ブラウザのキャッシュによって古いデータが表示されるのを防ぐため、
+    // URLの末尾に v=(現在時刻) を付与して、常に新しいリクエストとして認識させます。
     const url = `${SETTINGS.GAS_URL}?uid=${MY_LINE_ID}&action=get&mode=${IS_VIEW_MODE?'view':''}&v=${Date.now()}`;
     const res = await fetch(url);
     const data = await res.json();
@@ -130,9 +146,9 @@
       document.getElementById("main-view").style.display = "flex";
       document.getElementById("weekTitle").innerText = data.data.weekLabel + (IS_VIEW_MODE ? " (閲覧用)" : "");
       if(!IS_VIEW_MODE) document.getElementById("footer").style.display = "block";
-      render(); // HTMLテーブルを生成
+      render(); // テーブルを描画
     } else if (data.status === "unregistered") {
-      // 未登録の場合は登録用UIを表示
+      // LINE IDがまだスプレッドシートにない場合は登録画面へ
       document.getElementById("loading").style.display = "none";
       document.getElementById("registration-view").style.display = "block";
       const select = document.getElementById("name-list");
@@ -143,13 +159,13 @@
   }
 
   /**
-   * テーブルの描画処理
-   * 技術背景: データを元にHTML文字列を動的に組み立てて画面を書き換える
+   * 取得したデータを元にHTMLテーブルを生成する関数
+   * 技術解説: VBAの「セルの再計算」がないため、データが変わるたびにHTMLを再構築(render)します。
    */
   function render() {
     if (!days || days.length === 0) return;
     
-    // 集計計算
+    // 日付ごとの集計計算ロジック
     const totals = days.map(() => {
       let obj = {}; UI_CONFIG.signs.forEach(s => obj[s] = 0); return obj;
     });
@@ -157,7 +173,7 @@
       f.statuses.forEach((s, i) => { if (totals[i].hasOwnProperty(s)) totals[i][s]++; });
     });
 
-    // ヘッダー(日付と集計)の生成
+    // ヘッダー部分(日程＋集計数)のHTML組み立て
     let html = `<thead><tr><th class="name-col-head">団員父兄</th>`;
     days.forEach((d, i) => {
       let cls = (d.includes("日") || d.includes("祝")) ? "sun" : d.includes("土") ? "sat" : "";
@@ -169,7 +185,7 @@
     });
     html += "</tr></thead><tbody>";
 
-    // ボディ(各家族)の生成
+    // ボディ部分(各家庭の行)のHTML組み立て
     rawData.forEach((f, fIdx) => {
       const isMe = (MY_LINE_ID && f.lineId === MY_LINE_ID);
       html += `<tr class="${isMe ? 'my-row' : ''}"><td class="name-cell">${f.name}</td>`;
@@ -184,25 +200,25 @@
   }
 
   /**
-   * 出欠セルタップ時の処理
-   * 技術背景: メモリ上のデータを書き換えて再描画。通信はこの時点では行わない
+   * セルをタップした時にステータスを切り替える関数
    */
   function toggle(fIdx, dIdx) {
     const signs = UI_CONFIG.signs;
     const current = rawData[fIdx].statuses[dIdx];
-    // 次のステータスへ回す（〇→△→×→-→〇...）
+    // 配列の要素を1つ進めるロジック
     rawData[fIdx].statuses[dIdx] = signs[(signs.indexOf(current) + 1) % signs.length];
     
-    // 「どの日程(列)が変わったか」を記録
+    // 変更があった「列番号（日程）」を記録
     changedDayIndices.add(dIdx); 
-    render(); // 画面を更新
+    render(); // 画面を再描画して最新の〇△×を反映
   }
 
   /**
-   * GASへの保存処理
-   * 技術背景: 変更があったデータだけをJSON形式で一括送信
+   * 「保存」ボタンが押された時の処理
+   * 技術背景: fetchを使ったPOST的な送信。URL長制限を考慮し、payloadをエンコードして送信します。
    */
   async function saveAll() {
+    // 変更が一件もない場合は、何もせずにアプリを閉じる（通信の節約）
     if (changedDayIndices.size === 0) { liff.closeWindow(); return; }
     
     const loader = document.getElementById("loading");
@@ -211,7 +227,7 @@
     loaderText.innerText = "変更を送信中...";
 
     const myData = rawData.find(f => f.lineId === MY_LINE_ID);
-    // 変更があった列番号から、送信用のデータを作成
+    // changedDayIndicesに記録された列（日）のデータだけを抽出して送信データを作成
     const payload = Array.from(changedDayIndices).map(dayIdx => ({
       familyId: myData.id,
       dateLabel: days[dayIdx],
@@ -219,12 +235,12 @@
     }));
 
     try {
-      // URLにデータを乗せるため encodeURIComponent で安全な文字列に変換
       const res = await fetch(`${SETTINGS.GAS_URL}?action=update_all&payload=${encodeURIComponent(JSON.stringify(payload))}`);
       const resData = await res.json();
       if (resData.status === "success") {
         loaderText.innerText = "保存完了！";
-        setTimeout(() => { liff.closeWindow(); }, 500); // 0.5秒後にアプリを閉じる
+        // ユーザーが保存を確認できるよう、あえて0.5秒待ってから閉じます
+        setTimeout(() => { liff.closeWindow(); }, 500);
       }
     } catch (e) {
       alert("保存エラーが発生しました。");
@@ -233,18 +249,18 @@
   }
 
   /**
-   * 初回名簿紐付け
+   * 氏名選択後の紐付け保存処理
    */
   async function link() {
     const sid = document.getElementById("name-list").value;
     document.getElementById("loading").style.display = "flex";
     try {
       await fetch(`${SETTINGS.GAS_URL}?uid=${MY_LINE_ID}&action=link&family_id=${sid}`);
-      window.location.reload(); // 登録後は画面をリロード
+      window.location.reload(); // 登録後は初期化からやり直す
     } catch (e) { alert("登録エラー"); }
   }
 
-  // ページ読み込み完了時にinitを実行
+  // ページ読み込み完了時にinit関数を起動
   window.onload = init;
 </script>
 </body>
