@@ -6,25 +6,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    /* CSS変数設定。VBAのグローバル定数のような役割です。 */
     :root {
       --main-green: #27ae60; --sat-blue: #2980b9; --sun-red: #d35400;
       --bg-light: #f4f7f8; --my-row-bg: #fffbe6; --name-col-width: 70px;
     }
     body { font-family: sans-serif; margin: 0; background: var(--bg-light); color: #333; overflow: hidden; }
-    
-    /* 技術背景: Flexboxレイアウトを使用。
-      VBAの「自動配置」に近い機能ですが、親(container)がflexになると、
-      子要素は中身の幅まで縮まろうとする性質（副作用）があります。
-    */
     .container { padding: 4px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
-    
-    /* 副作用対策: h3(週表示)
-      親がflexになったことで左に寄ってしまったため、width: 100%を明示。
-      これにより、親の幅いっぱいに広がり、その中での text-align: center が効くようになります。
-    */
     h3 { text-align: center; font-size: 18px; margin: 6px 0; width: 100%; }
 
+    /* 通常モードのテーブル設定 */
     .table-wrapper { flex: 1; overflow-y: auto; overflow-x: hidden; border-radius: 8px; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 65px; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     thead { position: sticky; top: 0; z-index: 10; }
@@ -34,25 +24,36 @@
     th.sun { background: var(--sun-red); } 
     .count-box { font-size: 10px; margin-top: 3px; padding: 2px 4px; background: rgba(0,0,0,0.15); font-weight: normal; line-height: 1.3; }
     .count-row { display: flex; justify-content: space-between; }
+    
+    /* 通常モードのセル設定（タップしやすい高さ 48px） */
     td { border-bottom: 1px solid #eee; height: 48px; text-align: center; }
     .name-cell { width: var(--name-col-width); padding: 0 2px; font-weight: bold; font-size: 12px; text-align: left; background: #fafafa; border-right: 2px solid var(--main-green); word-break: break-all; }
     .my-row { background-color: var(--my-row-bg) !important; }
     .status-cell { font-size: 24px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-    
-    /* 出欠マーク別の配色設定 */
     .status-〇 { color: var(--main-green); font-weight: bold; } 
     .status-△ { color: #f39c12; font-weight: bold; }
     .status-× { color: #7f8c8d; font-weight: bold; }
     .status-- { color: #ccc; }
     
-    /* フッター：保存ボタンを常に画面下部に固定 */
     .footer-bar { position: fixed; bottom: 0; left: 0; width: 100%; padding: 10px; background: white; border-top: 1px solid #ddd; display: none; box-sizing: border-box; z-index: 100; }
     .btn-save { width: 100%; background: var(--main-green); color: white; border: none; padding: 12px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; }
     
-    /* 画面中央のローディング（独自実装分） */
     #loading { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.9); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:9999; }
     .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--main-green); border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    /* =========================================
+       ★追加: 閲覧モード専用のスタイル調整★
+       bodyタグに .view-mode が付与された時だけ以下の設定が上書きされます。
+       ========================================= */
+    /* 1. フッター用の余白(margin-bottom)を0にして画面下部まで広げる */
+    .view-mode .table-wrapper { margin-bottom: 0; }
+    /* 2. セルの高さを限界まで詰める（48px → 28px） */
+    .view-mode td { height: 28px; }
+    /* 3. 行の高さに合わせて〇△×のフォントサイズも少し小さくする */
+    .view-mode .status-cell { font-size: 18px; }
+    /* 4. 名前セルの文字サイズも少し小さくして、はみ出しを防ぐ */
+    .view-mode .name-cell { font-size: 11px; }
   </style>
 </head>
 <body id="bodyTag">
@@ -74,24 +75,16 @@
   </div>
 
 <script>
-  /**
-   * アプリの設定値。VBAの「定数定義」に相当。
-   */
+  // ★GAS_URLはご自身の最新のものに書き換えてください★
   const SETTINGS = {
-    // ★ デプロイした新しいGASのURLに書き換えてください ★
     GAS_URL: "https://script.google.com/macros/s/AKfycbwtyh1X3-Q1ER93O4tjoW5Xi7qtiQe6QlrXDRD8iZMK8VNL-vHnccel0QGnrM-xJ1RC/exec", 
     LIFF_ID: "2009266487-GEiMe9Ei"
   };
 
   let MY_LINE_ID = "";
   let IS_VIEW_MODE = false;
-  let days = [];      // 日程見出しの保持用
-  let rawData = [];   // 全出欠データの保持用
-  
-  /**
-   * 技術解説: Setオブジェクトを使用して「変更された列番号」を重複なく管理。
-   * これにより、同じ日を2回タップしても保存対象リストが重複しません。
-   */
+  let days = [];      
+  let rawData = [];   
   let changedDayIndices = new Set(); 
 
   const UI_CONFIG = {
@@ -99,31 +92,23 @@
     labels: { "〇": "参加", "△": "遅参", "×": "欠席", "-": "未回答" }
   };
 
-  /**
-   * アプリの初期化 (VBAの Workbook_Open に相当)
-   */
   async function init() {
     const params = new URLSearchParams(window.location.search);
-    IS_VIEW_MODE = (params.get('mode') === 'view'); // URL引数でモード切替
+    IS_VIEW_MODE = (params.get('mode') === 'view');
+    
+    // ここで body タグに 'view-mode' というクラスを付与しています
     if (IS_VIEW_MODE) document.getElementById("bodyTag").classList.add("view-mode");
 
     try {
-      // LINE内ブラウザの機能を使えるようにする
       await liff.init({ liffId: SETTINGS.LIFF_ID });
-      
       if (!IS_VIEW_MODE) {
         if (!liff.isLoggedIn()) { liff.login(); return; }
         const profile = await liff.getProfile();
-        MY_LINE_ID = profile.userId; // LINE IDの取得
+        MY_LINE_ID = profile.userId;
       }
-      
-      // データ取得（失敗してもalertを出さず、fetchData内でリトライを試みる）
       await fetchData();
-      
     } catch (e) {
       console.error("Init Error:", e);
-      // 技術予見/対策: 画面復帰時のネットワーク遮断による「Load failed」対策。
-      // 即座にエラー画面を出さず、1秒後に自動リロードを試みます。
       if (e.message && e.message.includes("failed")) {
         console.log("Network failure detected. Retrying...");
         setTimeout(() => window.location.reload(), 1000); 
@@ -131,32 +116,16 @@
         alert("初期化エラー: " + e.message);
       }
     } finally {
-      // データの有無にかかわらず独自ローディングを非表示にする
       if (rawData.length > 0 || IS_VIEW_MODE) document.getElementById("loading").style.display = "none";
-      
-      /**
-       * 技術予見/対策: LINEブラウザ上部の「緑のバー」が止まる問題への対応。
-       * fetch等の通信が終わってもブラウザが「まだ完了していない」と誤認することがあるため、
-       * windowの読み込み完了イベントを強制的に発火させて、ブラウザに「終わり」を通知します。
-       */
       window.dispatchEvent(new Event('load'));
     }
   }
 
-  /**
-   * GAS（サーバー）からデータを取得する非同期関数（リトライ機能付き）
-   * 技術背景: 復帰時の不安定なネットワークを考慮し、1回失敗しても即座にエラーにせず、
-   * 微小な待ち時間を置いてから再試行（再帰呼び出し）します。
-   */
   async function fetchData(retryCount = 0) {
-    // 予見対策: ブラウザのキャッシュによって古いデータが表示されるのを防ぐため、
-    // URLの末尾に v=(現在時刻) を付与して、常に新しいリクエストとして認識させます。
     const url = `${SETTINGS.GAS_URL}?uid=${MY_LINE_ID}&action=get&mode=${IS_VIEW_MODE?'view':''}&v=${Date.now()}`;
-    
     try {
       const res = await fetch(url);
-      if (!res.ok) throw new Error("Network response was not ok"); // 通信成功だが中身がエラーの場合
-      
+      if (!res.ok) throw new Error("Network response was not ok");
       const data = await res.json();
 
       if (data.status === "success") {
@@ -165,9 +134,8 @@
         document.getElementById("main-view").style.display = "flex";
         document.getElementById("weekTitle").innerText = data.data.weekLabel + (IS_VIEW_MODE ? " (閲覧用)" : "");
         if(!IS_VIEW_MODE) document.getElementById("footer").style.display = "block";
-        render(); // テーブルを描画
+        render();
       } else if (data.status === "unregistered") {
-        // LINE IDがまだスプレッドシートにない場合は登録画面へ
         document.getElementById("loading").style.display = "none";
         document.getElementById("registration-view").style.display = "block";
         const select = document.getElementById("name-list");
@@ -176,26 +144,17 @@
         });
       }
     } catch (e) {
-      // 最大2回までリトライを試みる
       if (retryCount < 2) {
         console.warn(`Fetch failed. Retrying... (${retryCount + 1})`);
-        // 0.5秒待ってから再試行（VBAのSleep処理に近い）
         await new Promise(resolve => setTimeout(resolve, 500));
         return await fetchData(retryCount + 1);
       }
-      // リトライし尽くしてもダメな場合のみ、例外を投げてinit()側のcatchに飛ばす
       throw e;
     }
   }
 
-  /**
-   * 取得したデータを元にHTMLテーブルを生成する関数
-   * 技術解説: VBAの「セルの再計算」がないため、データが変わるたびにHTMLを再構築(render)します。
-   */
   function render() {
     if (!days || days.length === 0) return;
-    
-    // 日付ごとの集計計算ロジック
     const totals = days.map(() => {
       let obj = {}; UI_CONFIG.signs.forEach(s => obj[s] = 0); return obj;
     });
@@ -203,7 +162,6 @@
       f.statuses.forEach((s, i) => { if (totals[i].hasOwnProperty(s)) totals[i][s]++; });
     });
 
-    // ヘッダー部分(日程＋集計数)のHTML組み立て
     let html = `<thead><tr><th class="name-col-head">団員父兄</th>`;
     days.forEach((d, i) => {
       let cls = (d.includes("日") || d.includes("祝")) ? "sun" : d.includes("土") ? "sat" : "";
@@ -215,7 +173,6 @@
     });
     html += "</tr></thead><tbody>";
 
-    // ボディ部分(各家庭の行)のHTML組み立て
     rawData.forEach((f, fIdx) => {
       const isMe = (MY_LINE_ID && f.lineId === MY_LINE_ID);
       html += `<tr class="${isMe ? 'my-row' : ''}"><td class="name-cell">${f.name}</td>`;
@@ -229,35 +186,22 @@
     document.getElementById("mainTable").innerHTML = html + "</tbody>";
   }
 
-  /**
-   * セルをタップした時にステータスを切り替える関数
-   */
   function toggle(fIdx, dIdx) {
     const signs = UI_CONFIG.signs;
     const current = rawData[fIdx].statuses[dIdx];
-    // 配列の要素を1つ進めるロジック
     rawData[fIdx].statuses[dIdx] = signs[(signs.indexOf(current) + 1) % signs.length];
-    
-    // 変更があった「列番号（日程）」を記録
     changedDayIndices.add(dIdx); 
-    render(); // 画面を再描画して最新の〇△×を反映
+    render();
   }
 
-  /**
-   * 「保存」ボタンが押された時の処理
-   * 技術背景: fetchを使ったPOST的な送信。URL長制限を考慮し、payloadをエンコードして送信します。
-   */
   async function saveAll() {
-    // 変更が一件もない場合は、何もせずにアプリを閉じる（通信の節約）
     if (changedDayIndices.size === 0) { liff.closeWindow(); return; }
-    
     const loader = document.getElementById("loading");
     const loaderText = document.getElementById("loadingText");
     loader.style.display = "flex";
     loaderText.innerText = "変更を送信中...";
 
     const myData = rawData.find(f => f.lineId === MY_LINE_ID);
-    // changedDayIndicesに記録された列（日）のデータだけを抽出して送信データを作成
     const payload = Array.from(changedDayIndices).map(dayIdx => ({
       familyId: myData.id,
       dateLabel: days[dayIdx],
@@ -269,7 +213,6 @@
       const resData = await res.json();
       if (resData.status === "success") {
         loaderText.innerText = "保存完了！";
-        // ユーザーが保存を確認できるよう、あえて0.5秒待ってから閉じます
         setTimeout(() => { liff.closeWindow(); }, 500);
       }
     } catch (e) {
@@ -278,19 +221,15 @@
     }
   }
 
-  /**
-   * 氏名選択後の紐付け保存処理
-   */
   async function link() {
     const sid = document.getElementById("name-list").value;
     document.getElementById("loading").style.display = "flex";
     try {
       await fetch(`${SETTINGS.GAS_URL}?uid=${MY_LINE_ID}&action=link&family_id=${sid}`);
-      window.location.reload(); // 登録後は初期化からやり直す
+      window.location.reload(); 
     } catch (e) { alert("登録エラー"); }
   }
 
-  // ページ読み込み完了時にinit関数を起動
   window.onload = init;
 </script>
 </body>
