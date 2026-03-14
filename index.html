@@ -8,28 +8,16 @@
   <style>
     :root {
       --main-green: #27ae60; --sat-blue: #2980b9; --sun-red: #d35400;
-      --bg-light: #f4f7f8; --my-row-bg: #fffbe6; 
-      /* ★修正：列幅を70pxから56pxへ変更 */
-      --name-col-width: 60px; 
+      --bg-light: #f4f7f8; --my-row-bg: #fffbe6; --name-col-width: 70px;
     }
-    
-    /* ★修正：iPhoneの「引っ張ると動く」挙動を抑制 */
-    html, body { 
-      overscroll-behavior: none; 
-      height: 100%; 
-      overflow: hidden; 
-    }
-
-    body { font-family: sans-serif; margin: 0; background: var(--bg-light); color: #333; }
+    body { font-family: sans-serif; margin: 0; background: var(--bg-light); color: #333; overflow: hidden; }
     .container { padding: 4px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
     h3 { text-align: center; font-size: 18px; margin: 6px 0; width: 100%; }
 
     .table-wrapper { flex: 1; overflow-y: auto; overflow-x: hidden; border-radius: 8px; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 65px; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     thead { position: sticky; top: 0; z-index: 10; }
-    
-    /* ★修正：ヘッダーのパディング調整と中央揃え */
-    th { background: var(--main-green); color: white; padding: 4px 0; font-size: 11px; border: none; font-weight: bold; line-height: 1.2; }
+    th { background: var(--main-green); color: white; padding: 4px 0; font-size: 11px; border: none; font-weight: bold; }
     .name-col-head { width: var(--name-col-width); }
     th.sat { background: var(--sat-blue); } 
     th.sun { background: var(--sun-red); } 
@@ -37,10 +25,7 @@
     .count-row { display: flex; justify-content: space-between; }
     
     td { border-bottom: 1px solid #eee; height: 48px; text-align: center; }
-    
-    /* ★修正：名前セルの余白を調整し、4文字左詰めに対応 */
-    .name-cell { width: var(--name-col-width); padding: 0 4px; font-weight: bold; font-size: 12px; text-align: left; background: #fafafa; border-right: 2px solid var(--main-green); word-break: break-all; box-sizing: border-box; }
-    
+    .name-cell { width: var(--name-col-width); padding: 0 2px; font-weight: bold; font-size: 12px; text-align: left; background: #fafafa; border-right: 2px solid var(--main-green); word-break: break-all; }
     .my-row { background-color: var(--my-row-bg) !important; }
     .status-cell { font-size: 24px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
     .status-〇 { color: var(--main-green); font-weight: bold; } 
@@ -55,7 +40,7 @@
     .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--main-green); border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-    /* 閲覧モードスタイル */
+    /* --- 閲覧モード専用設定（文字サイズ維持・高さのみ短縮版） --- */
     .view-mode .table-wrapper { margin-bottom: 0; }
     .view-mode td { height: 34px; }
   </style>
@@ -79,8 +64,8 @@
   </div>
 
 <script>
-  // ★GAS_URLをご自身のものに書き換えてください
   const SETTINGS = {
+    // ★ GAS_URLをご自身のものに書き換えてください ★
     GAS_URL: "https://script.google.com/macros/s/AKfycbwtyh1X3-Q1ER93O4tjoW5Xi7qtiQe6QlrXDRD8iZMK8VNL-vHnccel0QGnrM-xJ1RC/exec", 
     LIFF_ID: "2009266487-GEiMe9Ei"
   };
@@ -98,7 +83,7 @@
 
   async function init() {
     const params = new URLSearchParams(window.location.search);
-    IS_VIEW_MODE = (params.get('mode') === 'view');
+    IS_VIEW_MODE = (params.get('mode') === 'view'); 
     if (IS_VIEW_MODE) document.getElementById("bodyTag").classList.add("view-mode");
 
     try {
@@ -110,7 +95,6 @@
       }
       await fetchData();
     } catch (e) {
-      console.error("Init Error:", e);
       if (e.message && e.message.includes("failed")) {
         setTimeout(() => window.location.reload(), 1000); 
       } else {
@@ -160,8 +144,7 @@
       f.statuses.forEach((s, i) => { if (totals[i].hasOwnProperty(s)) totals[i][s]++; });
     });
 
-    // ★修正：「団員父兄」を「団員<br>父兄」に変更
-    let html = `<thead><tr><th class="name-col-head">団員<br>父兄</th>`;
+    let html = `<thead><tr><th class="name-col-head">団員父兄</th>`;
     days.forEach((d, i) => {
       let cls = (d.includes("日") || d.includes("祝")) ? "sun" : d.includes("土") ? "sat" : "";
       html += `<th class="${cls}">${d}<div class="count-box">`;
@@ -217,7 +200,6 @@
       window.location.reload(); 
     } catch (e) { alert("登録エラー"); }
   }
-
   window.onload = init;
 </script>
 </body>
