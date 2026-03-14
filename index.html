@@ -81,19 +81,41 @@
     labels: { "〇": "参加", "△": "遅参", "×": "欠席", "-": "未回答" }
   };
 
-  async function init() {
+async function init() {
+    // 1. URLパラメータから閲覧モードかどうかを判定
     const params = new URLSearchParams(window.location.search);
     IS_VIEW_MODE = (params.get('mode') === 'view'); 
-    if (IS_VIEW_MODE) document.getElementById("bodyTag").classList.add("view-mode");
+    
+    if (IS_VIEW_MODE) {
+      document.getElementById("bodyTag").classList.add("view-mode");
+    }
 
     try {
-      await liff.init({ liffId: SETTINGS.LIFF_ID });
+      // -------------------------------------------------------------
+      // 【技術解説（レベル3）】: 閲覧モード時のLIFF初期化スキップ
+      // 閲覧モードでは「誰が見ているか」を特定する必要がないため、
+      // liff.init() 自体を実行しないように分岐させます。
+      // これにより、LINEブラウザのプログレスバー（緑の線）が
+      // 読み込み中のままフリーズする現象を解消し、表示速度も上げます。
+      // -------------------------------------------------------------
       if (!IS_VIEW_MODE) {
-        if (!liff.isLoggedIn()) { liff.login(); return; }
+        // 編集モードの場合のみLIFFを初期化
+        await liff.init({ liffId: SETTINGS.LIFF_ID });
+        
+        // 未ログインならログイン画面へリダイレクト
+        if (!liff.isLoggedIn()) { 
+          liff.login(); 
+          return; 
+        }
+        
+        // 自分のLINE IDを取得してグローバル変数に保持
         const profile = await liff.getProfile();
         MY_LINE_ID = profile.userId;
       }
+
+      // 2. 準備が整ったらGASからデータを取得（共通処理）
       await fetchData();
+
     } catch (e) {
       if (e.message && e.message.includes("failed")) {
         setTimeout(() => window.location.reload(), 1000); 
@@ -101,8 +123,10 @@
         alert("初期化エラー: " + e.message);
       }
     } finally {
-      if (rawData.length > 0 || IS_VIEW_MODE) document.getElementById("loading").style.display = "none";
-      window.dispatchEvent(new Event('load'));
+      // 3. ローディング画面を非表示にする
+      if (rawData.length > 0 || IS_VIEW_MODE) {
+        document.getElementById("loading").style.display = "none";
+      }
     }
   }
 
